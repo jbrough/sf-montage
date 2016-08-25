@@ -1,55 +1,30 @@
-require 'logger'
-require 'em-http-request'
 
 class Downloader
-  def self.download(urls)
-    bufs = []
-    err = nil
+  def self.download(url1, url2)
+    buf1, err = get(url1)
+    return nil, nil, err if err
 
-    log = Logger.new(STDERR)
+    buf2, err = get(url2)
+    return nil, nil, err if err
 
-    EM.run do
-      multi = EM::MultiRequest.new
-
-      multi.add(:l, EM::HttpRequest.new(urls[0]).get)
-      multi.add(:r, EM::HttpRequest.new(urls[1]).get)
-
-      multi.callback do
-        if !err = check_err(multi.responses)
-          bufs = get_bufs(multi.responses)
-        end
-
-        err ||= "Missing buffer" if bufs.length < 2
-        EM.stop
-      end
-    end
-
-    if err
-      return nil, nil, err
-    end
-
-    return bufs[0], bufs[1], err
-	end
+    return buf1, buf2, nil
+  end
 
   private
 
-  def self.check_err(responses)
-    errs = responses[:errback]
-    err = errs[:l] || errs[:r]
-    if err
-      return err.error
-    end
-  end
+  def self.get(url)
+    uri = URI(url)
+    res = Net::HTTP.get_response(uri)
 
-  def self.get_bufs(responses)
-    [:l, :r].map do |k|
-      r = responses[:callback][k]
-      response_ok?(r) ? r.response : nil
-    end.compact
+    if response_ok?(res)
+      return res.body, nil
+    else
+      return nil, "Bad Download Response"
+    end
   end
 
   def self.response_ok?(response)
     # this implicty checks it's not a 404 etc
-    response.response_header["CONTENT_TYPE"] == "image/jpeg"
+    response.response.content_type == "image/jpeg"
   end
 end
