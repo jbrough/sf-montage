@@ -6,6 +6,7 @@ class MontageHandler
   def call(env)
     req = Rack::Request.new(env)
     urls = [req.params['l'], req.params['r']]
+    p  urls
     buf1, buf2, err = Downloader.download(urls)
     buf, err = Montage.create(buf1, buf2)
 

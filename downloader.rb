@@ -3,41 +3,53 @@ require 'em-http-request'
 
 class Downloader
   def self.download(urls)
-    bufs = {}
+    bufs = []
+    err = nil
+
     log = Logger.new(STDERR)
 
-		EventMachine.run do
-			multi = EventMachine::MultiRequest.new
+    EM.run do
+      multi = EM::MultiRequest.new
 
-			EM::Iterator.new(urls, 2).each do |url, iterator|
-				http = EventMachine::HttpRequest.new(url).get
-				http.errback do
-					host = URI(url).host
-					log.error("Failed connection to #{host}")
-					bufs[url] = [nil, "Error"]
-				end
-				http.callback do
-					status = http.response_header.status
-					if status != 200
-						log.error("HTTP #{status} downloading #{url}")
-						bufs[url] = [nil, "Error"]
-					else
-            bufs[url] = [http.response, nil]
-          end
-					iterator.next
-				end
-				multi.add(url, http)
-				multi.callback { EventMachine.stop } if url == urls.last
-			end
-		end
+      multi.add(:l, EM::HttpRequest.new(urls[0]).get)
+      multi.add(:r, EM::HttpRequest.new(urls[1]).get)
 
-		ret1 = bufs[urls[0]]
-		ret2 = bufs[urls[1]]
+      multi.callback do
+        if !err = check_err(multi.responses)
+          bufs = get_bufs(multi.responses)
+        end
 
-		if ret1[1] || ret2[1]
-			return nil, nil, "Error Downloading Image"
-		end
+        err ||= "Missing buffer" if bufs.length < 2
+        EM.stop
+      end
+    end
 
-		return ret1[0], ret2[0], nil
+    if err
+      return nil, nil, err
+    end
+
+    return bufs[0], bufs[1], err
 	end
+
+  private
+
+  def self.check_err(responses)
+    errs = responses[:errback]
+    err = errs[:l] || errs[:r]
+    if err
+      return err.error
+    end
+  end
+
+  def self.get_bufs(responses)
+    [:l, :r].map do |k|
+      r = responses[:callback][k]
+      response_ok?(r) ? r.response : nil
+    end.compact
+  end
+
+  def self.response_ok?(response)
+    # this implicty checks it's not a 404 etc
+    response.response_header["CONTENT_TYPE"] == "image/jpeg"
+  end
 end
